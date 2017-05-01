@@ -18,7 +18,8 @@
 
 Encoder encoder(D6, D5);
 SimpleTimer timer;
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+LiquidCrystal_I2C lcd(0x27, 16, 2); 
+
 Bounce debouncer = Bounce();
 
 struct {
@@ -44,16 +45,14 @@ void i2c_select(uint8_t i) {
 }
 
 void setup() {
-  delay(6000);
+  delay(2000);
   Serial.begin(115200);
 
   noInterrupts();
   {
-    i2c_select(I2C_DISPLAY);
-    delay(1000);
-    
-    lcd.begin();  
-    delay(1000);
+    i2c_select(I2C_DISPLAY);    
+    lcd.begin();
+    delay(100);
     
     lcd.clear();
     lcd.backlight();
@@ -69,7 +68,7 @@ void setup() {
   // Setup timers
   timer.setInterval(10 * TIME_SECOND_MS, tryConnectPressureSensors);
   timer.setInterval(3 * TIME_SECOND_MS, updatePressureSensorValues);
-  timer.setInterval(250, updateDisplay);
+  timer.setInterval(100, updateDisplay);
   
   timer.setInterval(TIME_SECOND_MS, []() {
      blink = !blink;
