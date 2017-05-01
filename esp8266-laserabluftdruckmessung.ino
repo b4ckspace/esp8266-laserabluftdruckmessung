@@ -41,24 +41,21 @@ void i2c_select(uint8_t i) {
   Wire.write(1 << i);
   Wire.endTransmission();
   
-  delay(40);
+  delay(10);
 }
 
 void setup() {
-  delay(2000);
+  delay(500);
+  
   Serial.begin(115200);
+  Wire.begin();
 
-  noInterrupts();
-  {
-    i2c_select(I2C_DISPLAY);    
-    lcd.begin();
-    delay(100);
-    
-    lcd.clear();
-    lcd.backlight();
-  }
-  interrupts();
- 
+  i2c_select(I2C_DISPLAY);  
+  lcd.begin();
+  
+  lcd.clear();
+  lcd.backlight();
+  
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   debouncer.attach(BUTTON_PIN);
   debouncer.interval(10);
