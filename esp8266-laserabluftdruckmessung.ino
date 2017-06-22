@@ -2,37 +2,32 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BMP280.h>
 #include <SimpleTimer.h>
+#include <PubSubClient.h>
+#include <ESP8266WiFi.h>
+#include <ArduinoOTA.h>
 #include <LiquidCrystal_I2C.h>
 #include <Encoder.h>
 #include <Bounce2.h>
+#include "settings.h" 
 
-#define BUTTON_PIN D4
-#define NUM_BMP280 7
 
-#define I2C_DISPLAY 7
-
-#define I2C_ADDR_BMP280 0x76
-#define I2C_ADDR_MULTIPLEXER 0x70
-
-#define TIME_SECOND_MS 1000
+SimpleTimer timer;
+PubSubClient mqttClient;
+WiFiClient wifiClient;
 
 Encoder encoder(D6, D5);
-SimpleTimer timer;
 LiquidCrystal_I2C lcd(0x27, 16, 2); 
 
-Bounce debouncer = Bounce();
+PressureSensor pressureSensors[NUM_BMP280];
 
-struct {
-  Adafruit_BMP280 sensor;
-  bool connected;
-  uint8_t consecutiveErrors;
-  float temperature;
-  float pressure;
-} pressureSensors[NUM_BMP280];
+Bounce debouncer = Bounce();
 
 uint8_t currentSelectedPressureSensor = 6;
 bool blink = false;
 bool showTemperature = false;
+int updateSensorValuesTimerId = -1;
+
+char formatBuffer[128] = {0};
 
 void i2c_select(uint8_t i) {
   if (i > 7) return;
@@ -50,6 +45,24 @@ void setup() {
   Serial.begin(115200);
   Wire.begin();
 
+  WiFi.hostname(HOSTNAME);
+  WiFi.mode(WIFI_STA);
+  
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    
+  mqttClient.setClient(wifiClient);
+  mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+  mqttClient.setCallback(mqttCallback);
+
+  ArduinoOTA.setHostname(HOSTNAME);
+  ArduinoOTA.setPassword(OTA_PASSWORD);
+  ArduinoOTA.begin();
+
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+  }
+
   i2c_select(I2C_DISPLAY);  
   lcd.begin();
   
@@ -64,12 +77,54 @@ void setup() {
 
   // Setup timers
   timer.setInterval(10 * TIME_SECOND_MS, tryConnectPressureSensors);
-  timer.setInterval(3 * TIME_SECOND_MS, updatePressureSensorValues);
   timer.setInterval(100, updateDisplay);
+
+  setSensorUpdate(SENSOR_POLL_INTERVAL_INACTIVE_MS);
   
   timer.setInterval(TIME_SECOND_MS, []() {
      blink = !blink;
   });
+
+  mqttConnect();
+}
+
+void setSensorUpdate(long interval) {
+
+  if (updateSensorValuesTimerId != -1) {
+    timer.deleteTimer(updateSensorValuesTimerId);
+    updateSensorValuesTimerId = -1;
+  }
+  
+  updateSensorValuesTimerId = timer.setInterval(interval, updatePressureSensorValues);
+}
+
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  const char* charPayload = (char*) payload;
+  
+  if (strcmp(topic, MQTT_TOPIC_LASER_OPERATION) == 0) {
+    if (strcmp(charPayload, "active") == 0) {
+      setSensorUpdate(SENSOR_POLL_INTERVAL_ACTIVE_MS);
+    } else if (strcmp(charPayload, "inactive") == 0) {
+      setSensorUpdate(SENSOR_POLL_INTERVAL_INACTIVE_MS);
+    }
+  }
+}
+
+void mqttConnect() {
+  while (!mqttClient.connected()) {
+    if (mqttClient.connect(HOSTNAME, MQTT_TOPIC_STATE, 1, true, "disconnected")) {
+      mqttClient.subscribe(MQTT_TOPIC_LASER_OPERATION);
+      mqttClient.publish(MQTT_TOPIC_STATE, "connected", true);
+    } else {
+      Serial.println("MQTT connect failed!");
+      delay(1000);
+    }
+  }
+}
+
+void publishSensorValue(char* topic, float value) {
+   sprintf(formatBuffer, "%.2f", value);
+   mqttClient.publish(topic, formatBuffer);
 }
 
 void updateDisplay() {
@@ -158,6 +213,12 @@ void updatePressureSensorValues() {
 
     pressureSensors[i].temperature = temperature;
     pressureSensors[i].pressure = pressure;
+
+    sprintf(formatBuffer, "%s/%d", MQTT_TOPIC_SENSOR_PRESSURE_BASE, i);
+    publishSensorValue(formatBuffer, pressure);
+    
+    sprintf(formatBuffer, "%s/%d", MQTT_TOPIC_SENSOR_TEMPERATURE_BASE, i);
+    publishSensorValue(formatBuffer, temperature);
   }
 }
 
@@ -165,6 +226,7 @@ void updatePressureSensorValues() {
 long oldPosition  = -999;
 
 void loop() {
+  mqttConnect();
   
   long newPosition = encoder.read() / 2;
   if (newPosition > oldPosition) {
@@ -187,4 +249,5 @@ void loop() {
   
   timer.run();
   debouncer.update();
+  mqttClient.loop();
 }
