@@ -28,6 +28,7 @@ bool showTemperature = false;
 int updateSensorValuesTimerId = -1;
 
 char formatBuffer[128] = {0};
+char valueBuffer[42] = {0};
 
 void i2c_select(uint8_t i) {
   if (i > 7) return;
@@ -100,31 +101,32 @@ void setSensorUpdate(long interval) {
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
   const char* charPayload = (char*) payload;
-  
+
   if (strcmp(topic, MQTT_TOPIC_LASER_OPERATION) == 0) {
-    if (strcmp(charPayload, "active") == 0) {
+    if (strncmp(charPayload, "active", length) == 0) {
       setSensorUpdate(SENSOR_POLL_INTERVAL_ACTIVE_MS);
-    } else if (strcmp(charPayload, "inactive") == 0) {
+    } else if (strncmp(charPayload, "inactive", length) == 0) {
       setSensorUpdate(SENSOR_POLL_INTERVAL_INACTIVE_MS);
     }
   }
 }
 
 void mqttConnect() {
-  while (!mqttClient.connected()) {
+  if (!mqttClient.connected()) {
     if (mqttClient.connect(HOSTNAME, MQTT_TOPIC_STATE, 1, true, "disconnected")) {
       mqttClient.subscribe(MQTT_TOPIC_LASER_OPERATION);
       mqttClient.publish(MQTT_TOPIC_STATE, "connected", true);
-    } else {
-      Serial.println("MQTT connect failed!");
-      delay(1000);
     }
   }
 }
 
-void publishSensorValue(char* topic, float value) {
-   sprintf(formatBuffer, "%.2f", value);
-   mqttClient.publish(topic, formatBuffer);
+void publishSensorValue(char* topic, float value, uint8_t precision) {
+   dtostrf(value, 4, precision, valueBuffer);
+   mqttClient.publish(topic, valueBuffer);
+}
+
+void publishNullMessage(char* topic) {
+  mqttClient.publish(topic, "", 0);
 }
 
 void updateDisplay() {
@@ -205,20 +207,25 @@ void updatePressureSensorValues() {
       pressureSensors[i].consecutiveErrors++;
     } else {
       pressureSensors[i].consecutiveErrors = 0;
+      pressureSensors[i].temperature = temperature;
+      pressureSensors[i].pressure = pressure;
+  
+      sprintf(formatBuffer, "%s/%d", MQTT_TOPIC_SENSOR_PRESSURE_BASE, i + 1);
+      publishSensorValue(formatBuffer, pressure / 100.0, 3);
+      
+      sprintf(formatBuffer, "%s/%d", MQTT_TOPIC_SENSOR_TEMPERATURE_BASE, i + 1);
+      publishSensorValue(formatBuffer, temperature, 2);
     }
 
     if (pressureSensors[i].consecutiveErrors > 3) {
         pressureSensors[i].connected = false;
+
+        sprintf(formatBuffer, "%s/%d", MQTT_TOPIC_SENSOR_PRESSURE_BASE, i + 1);
+        publishNullMessage(formatBuffer);
+
+        sprintf(formatBuffer, "%s/%d", MQTT_TOPIC_SENSOR_TEMPERATURE_BASE, i + 1);
+        publishNullMessage(formatBuffer);
     }
-
-    pressureSensors[i].temperature = temperature;
-    pressureSensors[i].pressure = pressure;
-
-    sprintf(formatBuffer, "%s/%d", MQTT_TOPIC_SENSOR_PRESSURE_BASE, i);
-    publishSensorValue(formatBuffer, pressure);
-    
-    sprintf(formatBuffer, "%s/%d", MQTT_TOPIC_SENSOR_TEMPERATURE_BASE, i);
-    publishSensorValue(formatBuffer, temperature);
   }
 }
 
