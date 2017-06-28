@@ -86,6 +86,8 @@ void setup() {
      blink = !blink;
   });
 
+  tryConnectPressureSensors();
+  updatePressureSensorValues();
   mqttConnect();
 }
 
