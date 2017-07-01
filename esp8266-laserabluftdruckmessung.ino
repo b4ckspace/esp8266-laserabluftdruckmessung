@@ -85,7 +85,7 @@ void setup() {
 
   // Setup timers
   timer.setInterval(10 * TIME_SECOND_MS, tryConnectPressureSensors);
-  timer.setInterval(100, updateDisplay);
+  timer.setInterval(300, updateDisplay);
 
   setSensorUpdate(SENSOR_POLL_INTERVAL_INACTIVE_MS);
 
@@ -232,14 +232,17 @@ void loop() {
       selectedPressureSensor--;
     }
 
+    updateDisplay();
   } else if (newPosition < oldPosition) {
     selectedPressureSensor = (selectedPressureSensor + 1) % NUM_BMP280;
+    updateDisplay();
   }
 
   oldPosition = newPosition;;
 
   if (debouncer.fell()) {
     showTemperature = !showTemperature;
+    updateDisplay();
   }
 
   timer.run();
