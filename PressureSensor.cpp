@@ -27,10 +27,6 @@ void PressureSensor::update(bool updateTara) {
     return;
   }
 
-  if (updateTara) {
-    this->updateTara();
-  }
-
   i2c_select(this->index);
 
   float temperature = this->sensor.readTemperature();
@@ -50,6 +46,10 @@ void PressureSensor::update(bool updateTara) {
 
   this->temperature = temperature;
   this->pressure = pressure;
+
+  if (updateTara) {
+    this->updateTara();
+  }
 }
 
 void PressureSensor::connect() {
