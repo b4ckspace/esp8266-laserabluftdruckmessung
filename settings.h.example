@@ -18,8 +18,7 @@
 
 #define MQTT_TOPIC_STATE "state/laser/sensor"
 #define MQTT_TOPIC_LASER_OPERATION "project/laser/operation"
-#define MQTT_TOPIC_SENSOR_PRESSURE_BASE "project/laser/sensor/pressure"
-#define MQTT_TOPIC_SENSOR_TEMPERATURE_BASE "project/laser/sensor/temperature"
+#define MQTT_TOPIC_SENSOR_BASE "project/laser/sensor"
 
 #define SENSOR_POLL_INTERVAL_INACTIVE_MS (30 * TIME_SECOND_MS)
 #define SENSOR_POLL_INTERVAL_ACTIVE_MS  TIME_SECOND_MS
