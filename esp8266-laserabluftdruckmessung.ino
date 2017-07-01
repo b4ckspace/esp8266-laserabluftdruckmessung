@@ -8,23 +8,24 @@
 #include <LiquidCrystal_I2C.h>
 #include <Encoder.h>
 #include <Bounce2.h>
-#include "settings.h" 
-
+#include "settings.h"
+#include "PressureSensor.h"
 
 SimpleTimer timer;
 PubSubClient mqttClient;
 WiFiClient wifiClient;
 
 Encoder encoder(D6, D5);
-LiquidCrystal_I2C lcd(0x27, 16, 2); 
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-PressureSensor pressureSensors[NUM_BMP280];
+PressureSensor* sensors[NUM_BMP280];
 
 Bounce debouncer = Bounce();
 
-uint8_t currentSelectedPressureSensor = 6;
+uint8_t selectedPressureSensor = 6;
 bool blink = false;
 bool showTemperature = false;
+bool isLaserActive = false;
 int updateSensorValuesTimerId = -1;
 
 char formatBuffer[128] = {0};
@@ -36,21 +37,21 @@ void i2c_select(uint8_t i) {
   Wire.beginTransmission(I2C_ADDR_MULTIPLEXER);
   Wire.write(1 << i);
   Wire.endTransmission();
-  
+
   delay(10);
 }
 
 void setup() {
   delay(500);
-  
+
   Serial.begin(115200);
   Wire.begin();
 
   WiFi.hostname(HOSTNAME);
   WiFi.mode(WIFI_STA);
-  
+
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    
+
   mqttClient.setClient(wifiClient);
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
   mqttClient.setCallback(mqttCallback);
@@ -59,17 +60,22 @@ void setup() {
   ArduinoOTA.setPassword(OTA_PASSWORD);
   ArduinoOTA.begin();
 
+  for (uint8_t i = 0; i < NUM_BMP280; i++) {
+    sensors[i] = new PressureSensor(i);
+    sensors[i]->connect();
+  }
+
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
     delay(500);
   }
 
-  i2c_select(I2C_DISPLAY);  
+  i2c_select(I2C_DISPLAY);
   lcd.begin();
-  
+
   lcd.clear();
   lcd.backlight();
-  
+
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   debouncer.attach(BUTTON_PIN);
   debouncer.interval(10);
@@ -81,13 +87,14 @@ void setup() {
   timer.setInterval(100, updateDisplay);
 
   setSensorUpdate(SENSOR_POLL_INTERVAL_INACTIVE_MS);
-  
+
   timer.setInterval(TIME_SECOND_MS, []() {
-     blink = !blink;
+    blink = !blink;
   });
 
   tryConnectPressureSensors();
   updatePressureSensorValues();
+  
   mqttConnect();
 }
 
@@ -97,7 +104,7 @@ void setSensorUpdate(long interval) {
     timer.deleteTimer(updateSensorValuesTimerId);
     updateSensorValuesTimerId = -1;
   }
-  
+
   updateSensorValuesTimerId = timer.setInterval(interval, updatePressureSensorValues);
 }
 
@@ -106,8 +113,10 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
   if (strcmp(topic, MQTT_TOPIC_LASER_OPERATION) == 0) {
     if (strncmp(charPayload, "active", length) == 0) {
+      isLaserActive = true;
       setSensorUpdate(SENSOR_POLL_INTERVAL_ACTIVE_MS);
     } else if (strncmp(charPayload, "inactive", length) == 0) {
+      isLaserActive = false;
       setSensorUpdate(SENSOR_POLL_INTERVAL_INACTIVE_MS);
     }
   }
@@ -122,30 +131,36 @@ void mqttConnect() {
   }
 }
 
-void publishSensorValue(char* topic, float value, uint8_t precision) {
-   dtostrf(value, 4, precision, valueBuffer);
-   mqttClient.publish(topic, valueBuffer);
+void publishSensorValue(uint8_t sensor, char* topic, float value, uint8_t precision) {
+  sprintf(formatBuffer, "%s/%d/%s", MQTT_TOPIC_SENSOR_BASE, sensor, topic);
+  
+  dtostrf(value, 4, precision, valueBuffer);
+  mqttClient.publish(formatBuffer, valueBuffer);
 }
 
-void publishNullMessage(char* topic) {
-  mqttClient.publish(topic, "", 0);
+void publishNullMessage(uint8_t sensor, char* topic) {
+  sprintf(formatBuffer, "%s/%d/%s", MQTT_TOPIC_SENSOR_BASE, sensor, topic);
+  mqttClient.publish(formatBuffer, "", 0);
 }
 
 void updateDisplay() {
-  
+
   i2c_select(I2C_DISPLAY);
-  
+
   lcd.setCursor(0, 0);
   lcd.print("Sensors: ");
 
-  for (uint8_t i = 0; i < NUM_BMP280; i++) {
+  PressureSensor* selectedSensor = sensors[selectedPressureSensor];
 
-    if (currentSelectedPressureSensor == i && blink) {
+  for (uint8_t i = 0; i < NUM_BMP280; i++) {
+    PressureSensor* sensor = sensors[i];
+
+    if (selectedPressureSensor == i && blink) {
       lcd.print(" ");
       continue;
     }
-    
-    if (pressureSensors[i].connected) {
+
+    if (sensor->isConnected()) {
       lcd.print(i + 1);
     } else {
       lcd.print("_");
@@ -153,20 +168,20 @@ void updateDisplay() {
   }
 
   lcd.setCursor(0, 1);
-  
-  if (pressureSensors[currentSelectedPressureSensor].connected) {
+
+  if (selectedSensor->isConnected()) {
 
     if (showTemperature) {
-      lcd.print(pressureSensors[currentSelectedPressureSensor].temperature);
+      lcd.print(selectedSensor->getTemperature());
       lcd.print(" ");
       lcd.print((char) 0xDF);
       lcd.print("C             ");
-      
+
     } else {
-      lcd.print(pressureSensors[currentSelectedPressureSensor].pressure / 100.0);
+      lcd.print(selectedSensor->getPressure() / 100.0);
       lcd.print(" hPa            ");
     }
-    
+
   } else {
     lcd.print("Not connected.");
   }
@@ -174,60 +189,30 @@ void updateDisplay() {
 
 void tryConnectPressureSensors() {
   for (uint8_t i = 0; i < NUM_BMP280; i++) {
-
-    if (pressureSensors[i].connected) {
-      continue;
-    }
-
-    i2c_select(i);
-    delay(5);
-    
-    if (pressureSensors[i].sensor.begin(I2C_ADDR_BMP280)) {
-      Serial.print("Sensor #");
-      Serial.print(i);
-      Serial.println(" reconnected");
-      
-      pressureSensors[i].connected = true;
-    }
-    
-    delay(5);
+    sensors[i]->connect();
   }
 }
 
 void updatePressureSensorValues() {
   for (uint8_t i = 0; i < NUM_BMP280; i++) {
-    i2c_select(i);
-
-    if (!pressureSensors[i].connected) {
-      continue;
-    }
-
-    float temperature = pressureSensors[i].sensor.readTemperature();
-    float pressure = pressureSensors[i].sensor.readPressure();
-
-    if (temperature <= -42) {
-      pressureSensors[i].consecutiveErrors++;
-    } else {
-      pressureSensors[i].consecutiveErrors = 0;
-      pressureSensors[i].temperature = temperature;
-      pressureSensors[i].pressure = pressure;
-  
-      sprintf(formatBuffer, "%s/%d", MQTT_TOPIC_SENSOR_PRESSURE_BASE, i + 1);
-      publishSensorValue(formatBuffer, pressure / 100.0, 3);
+      PressureSensor* sensor = sensors[i];
       
-      sprintf(formatBuffer, "%s/%d", MQTT_TOPIC_SENSOR_TEMPERATURE_BASE, i + 1);
-      publishSensorValue(formatBuffer, temperature, 2);
-    }
+      bool connected = sensor->isConnected();
+      
+      sensor->update(isLaserActive);
 
-    if (pressureSensors[i].consecutiveErrors > 3) {
-        pressureSensors[i].connected = false;
+      if (connected && !sensor->isConnected()) {
+        // Sensor disconnected after update
+        publishNullMessage(i + 1, "pressure");
+        publishNullMessage(i + 1, "pressure/relative");
+        publishNullMessage(i + 1, "temperature");
 
-        sprintf(formatBuffer, "%s/%d", MQTT_TOPIC_SENSOR_PRESSURE_BASE, i + 1);
-        publishNullMessage(formatBuffer);
+        continue;
+      }
 
-        sprintf(formatBuffer, "%s/%d", MQTT_TOPIC_SENSOR_TEMPERATURE_BASE, i + 1);
-        publishNullMessage(formatBuffer);
-    }
+      publishSensorValue(i + 1, "pressure", sensor->getPressure() / 100.0, 3);
+      publishSensorValue(i + 1, "pressure/relative", sensor->getRelativePressure() / 100.0, 3);
+      publishSensorValue(i + 1, "temperature", sensor->getTemperature(), 2);
   }
 }
 
@@ -236,18 +221,18 @@ long oldPosition  = -999;
 
 void loop() {
   mqttConnect();
-  
+
   long newPosition = encoder.read() / 2;
   if (newPosition > oldPosition) {
-    
-    if (currentSelectedPressureSensor == 0) {
-      currentSelectedPressureSensor = NUM_BMP280 - 1;
+
+    if (selectedPressureSensor == 0) {
+      selectedPressureSensor = NUM_BMP280 - 1;
     } else {
-      currentSelectedPressureSensor--;
+      selectedPressureSensor--;
     }
-    
+
   } else if (newPosition < oldPosition) {
-    currentSelectedPressureSensor = (currentSelectedPressureSensor + 1) % NUM_BMP280;
+    selectedPressureSensor = (selectedPressureSensor + 1) % NUM_BMP280;
   }
 
   oldPosition = newPosition;;
@@ -255,7 +240,7 @@ void loop() {
   if (debouncer.fell()) {
     showTemperature = !showTemperature;
   }
-  
+
   timer.run();
   debouncer.update();
   mqttClient.loop();
