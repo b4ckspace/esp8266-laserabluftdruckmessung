@@ -44,6 +44,15 @@ void i2c_select(uint8_t i) {
 void setup() {
   delay(500);
 
+  i2c_select(I2C_DISPLAY);
+  lcd.begin();
+
+  lcd.clear();
+  lcd.backlight();
+  
+  lcd.setCursor(0, 0);
+  lcd.print("Booting...");
+  
   Serial.begin(115200);
   Wire.begin();
 
@@ -70,17 +79,9 @@ void setup() {
     delay(500);
   }
 
-  i2c_select(I2C_DISPLAY);
-  lcd.begin();
-
-  lcd.clear();
-  lcd.backlight();
-
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   debouncer.attach(BUTTON_PIN);
   debouncer.interval(10);
-
-  tryConnectPressureSensors();
 
   // Setup timers
   timer.setInterval(10 * TIME_SECOND_MS, tryConnectPressureSensors);
