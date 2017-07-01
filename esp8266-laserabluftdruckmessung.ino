@@ -59,6 +59,11 @@ void setup() {
   ArduinoOTA.setPassword(OTA_PASSWORD);
   ArduinoOTA.begin();
 
+  for (uint8_t i = 0; i < NUM_BMP280; i++) {
+    sensors[i] = new PressureSensor(i);
+    sensors[i]->connect();
+  }
+
   i2c_select(I2C_DISPLAY);
   lcd.begin();
 
@@ -66,17 +71,14 @@ void setup() {
   lcd.backlight();
   
   lcd.setCursor(0, 0);
-  lcd.print("Connecting to WiFi");
-
-  for (uint8_t i = 0; i < NUM_BMP280; i++) {
-    sensors[i] = new PressureSensor(i);
-    sensors[i]->connect();
-  }
+  lcd.print("WiFi Connect");
 
   uint8_t pos = 0;
   while (WiFi.status() != WL_CONNECTED) {
-    lcd.setCursor(1, (pos++) % 15);
+    lcd.setCursor((pos++) % 15, 1);
     lcd.print(" .");
+
+    delay(500);
   }
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
