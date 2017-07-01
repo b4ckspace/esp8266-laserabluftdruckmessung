@@ -1,7 +1,8 @@
 #include "PressureSensor.h"
 
-PressureSensor::PressureSensor(uint8_t index) : index(index) {
-  //
+PressureSensor::PressureSensor(uint8_t index)
+  : index(index), connected(false), pressure(0), temperature(0), pressureTara(0) {
+
 }
 
 float PressureSensor::getTemperature() {
@@ -22,22 +23,29 @@ bool PressureSensor::isConnected() {
 
 void PressureSensor::update(bool laserActive) {
 
+  if (!this->isConnected()) {
+    return;
+  }
+
   if (!laserActive) {
     this->updateTara();
   }
 
+  i2c_select(this->index);
+
   float temperature = this->sensor.readTemperature();
   float pressure = this->sensor.readPressure();
-
-  if (temperature <= -42) {
+  
+  if (!this->isValidTemperature(temperature) || !this->isValidPressure(pressure)) {
     this->errorCount++;
+
+    if (this->errorCount > 3) {
+      this->connected = false;
+    }
+
+    return;
   } else {
     this->errorCount = 0;
-  }
-
-  if (this->errorCount > 3) {
-    this->connected = false;
-    return;
   }
 
   this->temperature = temperature;
@@ -45,13 +53,15 @@ void PressureSensor::update(bool laserActive) {
 }
 
 void PressureSensor::connect() {
-  if (this->connected) {
+
+  if (this->isConnected()) {
     return;
   }
-
+  
   i2c_select(this->index);
   
   if (this->sensor.begin(I2C_ADDR_BMP280)) {
+    this->update(false);
     this->connected = true;
   }
 }
@@ -59,5 +69,13 @@ void PressureSensor::connect() {
 
 void PressureSensor::updateTara() {
   this->pressureTara = this->pressure;
+}
+
+bool PressureSensor::isValidTemperature(float temperature) {
+   return !(temperature > 60 || temperature < -10);
+}
+
+bool PressureSensor::isValidPressure(float pressure) {
+   return !(pressure > 180000 || pressure < 40000);
 }
 

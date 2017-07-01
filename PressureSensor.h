@@ -22,6 +22,9 @@ class PressureSensor {
 
       bool connected;
 
+      bool isValidTemperature(float temperature);
+      bool isValidPressure(float pressure);
+      
       void updateTara();
 
     public:
