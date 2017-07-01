@@ -200,22 +200,24 @@ void updatePressureSensorValues() {
   for (uint8_t i = 0; i < NUM_BMP280; i++) {
       PressureSensor* sensor = sensors[i];
       
-      bool connected = sensor->isConnected();
+      bool wasConnectedBefore = sensor->isConnected();
       
-      sensor->update(isLaserActive);
+      sensor->update(!isLaserActive);
 
-      if (connected && !sensor->isConnected()) {
-        // Sensor disconnected after update
-        publishNullMessage(i + 1, "pressure");
-        publishNullMessage(i + 1, "pressure/relative");
-        publishNullMessage(i + 1, "temperature");
+      if (wasConnectedBefore) {
 
-        continue;
+        // Still connected?
+        if (sensor->isConnected()) {
+          publishSensorValue(i + 1, "pressure", sensor->getPressure() / 100.0, 3);
+          publishSensorValue(i + 1, "pressure/relative", sensor->getRelativePressure() / 100.0, 3);
+          publishSensorValue(i + 1, "temperature", sensor->getTemperature(), 2);
+        } else {
+          // Sensor disconnected after update
+          publishNullMessage(i + 1, "pressure");
+          publishNullMessage(i + 1, "pressure/relative");
+          publishNullMessage(i + 1, "temperature");
+        }
       }
-
-      publishSensorValue(i + 1, "pressure", sensor->getPressure() / 100.0, 3);
-      publishSensorValue(i + 1, "pressure/relative", sensor->getRelativePressure() / 100.0, 3);
-      publishSensorValue(i + 1, "temperature", sensor->getTemperature(), 2);
   }
 }
 
