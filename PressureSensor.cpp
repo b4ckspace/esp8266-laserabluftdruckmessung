@@ -21,13 +21,13 @@ bool PressureSensor::isConnected() {
   return this->connected;
 }
 
-void PressureSensor::update(bool laserActive) {
+void PressureSensor::update(bool updateTara) {
 
   if (!this->isConnected()) {
     return;
   }
 
-  if (!laserActive) {
+  if (updateTara) {
     this->updateTara();
   }
 
