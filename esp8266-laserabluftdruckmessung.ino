@@ -75,10 +75,10 @@ void setup() {
 
   uint8_t pos = 0;
   while (WiFi.status() != WL_CONNECTED) {
-    lcd.setCursor((pos++) % 15, 1);
+    lcd.setCursor((pos++) % 1, 1);
     lcd.print(" .");
 
-    delay(500);
+    delay(200);
   }
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
@@ -119,8 +119,12 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       isLaserActive = true;
       setSensorUpdate(SENSOR_POLL_INTERVAL_ACTIVE_MS);
     } else if (strncmp(charPayload, "inactive", length) == 0) {
-      isLaserActive = false;
-      setSensorUpdate(SENSOR_POLL_INTERVAL_INACTIVE_MS);
+
+      // Set back laserActive after 10 seconds, to avoid wrong taras
+      timer.setTimeout(10 * TIME_SECOND_MS, []() {
+        isLaserActive = false;
+        setSensorUpdate(SENSOR_POLL_INTERVAL_INACTIVE_MS);
+      });
     }
   }
 }
