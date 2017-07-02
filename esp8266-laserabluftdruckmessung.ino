@@ -120,8 +120,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       setSensorUpdate(SENSOR_POLL_INTERVAL_ACTIVE_MS);
     } else if (strncmp(charPayload, "inactive", length) == 0) {
 
-      // Set back laserActive after 10 seconds, to avoid wrong taras
-      timer.setTimeout(10 * TIME_SECOND_MS, []() {
+      // Set back laserActive after LASER_ACTIVE_TIMEOUT_MS seconds, to avoid wrong taras
+      timer.setTimeout(LASER_ACTIVE_TIMEOUT_MS * TIME_SECOND_MS, []() {
         isLaserActive = false;
         setSensorUpdate(SENSOR_POLL_INTERVAL_INACTIVE_MS);
       });
