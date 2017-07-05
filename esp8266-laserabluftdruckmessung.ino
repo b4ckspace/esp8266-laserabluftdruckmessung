@@ -27,6 +27,7 @@ bool blink = false;
 bool showTemperature = false;
 bool isLaserActive = false;
 int updateSensorValuesTimerId = -1;
+int laserInactiveTimeoutTimerId = -1;
 
 char formatBuffer[128] = {0};
 char valueBuffer[42] = {0};
@@ -115,14 +116,21 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   const char* charPayload = (char*) payload;
 
   if (strcmp(topic, MQTT_TOPIC_LASER_OPERATION) == 0) {
+
+    // Delete old timer
+    if (laserInactiveTimeoutTimerId != -1) {
+      timer.deleteTimer(laserInactiveTimeoutTimerId);
+    }
+  
     if (strncmp(charPayload, "active", length) == 0) {
       isLaserActive = true;
       setSensorUpdate(SENSOR_POLL_INTERVAL_ACTIVE_MS);
     } else if (strncmp(charPayload, "inactive", length) == 0) {
 
       // Set back laserActive after LASER_ACTIVE_TIMEOUT_MS seconds, to avoid wrong taras
-      timer.setTimeout(LASER_ACTIVE_TIMEOUT_MS * TIME_SECOND_MS, []() {
+      laserInactiveTimeoutTimerId = timer.setTimeout(LASER_ACTIVE_TIMEOUT_MS * TIME_SECOND_MS, []() {
         isLaserActive = false;
+        laserInactiveTimeoutTimerId = -1;
         setSensorUpdate(SENSOR_POLL_INTERVAL_INACTIVE_MS);
       });
     }
